@@ -6,7 +6,7 @@ const char* ssid           = "ryusei";
 const char* password       = "ryuseisimp";
 const char* discordWebhook = "https://discord.com/api/webhooks/1563346772946980864/eBm5bQQq3O2XR05TnJjesmNBrU3oOuKNrBiPCCZdUVTT8__H_GG_3o5R2eatsDK6o15r";
 
-const int reedPin = 5;
+const int reedPin = 34;
 
 const unsigned long SEND_INTERVAL_MS = 5000;
 unsigned long lastSendTime = 0;
