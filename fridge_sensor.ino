@@ -1,119 +1,70 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 
-// ---------- WiFi ----------
-const char* ssid = "ryusei";
-const char* password = "ryuseisimp";
+const char* ssid           = "ryusei";
+const char* password       = "ryuseisimp";
+const char* discordWebhook = "https://discord.com/api/webhooks/1563346772946980864/eBm5bQQq3O2XR05TnJjesmNBrU3oOuKNrBiPCCZdUVTT8__H_GG_3o5R2eatsDK6o15r";
 
-// ---------- Discord ----------
-const char* discordWebhook =
-  "https://discord.com/api/webhooks/1563346772946980864/eBm5bQQq3O2XR05TnJjesmNBrU3oOuKNrBiPCCZdUVTT8__H_GG_3o5R2eatsDK6o15r";
+const int reedPin = 5;
 
-// ---------- Input ----------
-const int inputPin = 5;   // GPIO5 -- verify this for your ESP32 board
-
-// ---------- Timing ----------
-const unsigned long LOW_TIME_REQUIRED = 5000;  // 5 seconds
-
-unsigned long lowStartTime = 0;
-bool timingLow = false;
-bool messageSent = false;
-
+const unsigned long SEND_INTERVAL_MS = 5000;
+unsigned long lastSendTime = 0;
 
 void setup() {
   Serial.begin(115200);
+  delay(1000);
 
-  // D5 is being driven externally by 0 V / 3.3 V
-  pinMode(inputPin, INPUT);
+  // External pull-down on the circuit, so no internal resistor
+  pinMode(reedPin, INPUT);
 
-  // Connect to WiFi
   WiFi.begin(ssid, password);
-
   Serial.print("Connecting to WiFi");
-
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
+  Serial.println("\nWiFi connected!");
 
-  Serial.println();
-  Serial.println("WiFi connected!");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
+  lastSendTime = millis() - SEND_INTERVAL_MS;  // send first message right away
 }
-
 
 void loop() {
+  if (millis() - lastSendTime >= SEND_INTERVAL_MS) {
+    lastSendTime = millis();
 
-  int pinState = digitalRead(inputPin);
+    bool magnetPresent = (digitalRead(reedPin) == HIGH);
+    String msg = magnetPresent ? "Magnet detected (door CLOSED)"
+                               : "No magnet (door OPEN)";
 
-  // -------------------------
-  // D5 is LOW
-  // -------------------------
-  if (pinState == LOW) {
-
-    // Just became LOW -- start timer
-    if (!timingLow) {
-      timingLow = true;
-      lowStartTime = millis();
-
-      Serial.println("D5 went LOW. Starting 5-second timer...");
-    }
-
-    // Has it stayed LOW for 5 seconds?
-    if (!messageSent &&
-        (millis() - lowStartTime >= LOW_TIME_REQUIRED)) {
-
-      Serial.println("D5 has been LOW for 5 seconds.");
-
-      sendDiscordMessage("hello world");
-
-      messageSent = true;
-    }
+    Serial.println(msg);
+    sendDiscordMessage(msg);
   }
-
-  // -------------------------
-  // D5 is HIGH
-  // -------------------------
-  else {
-
-    // Reset everything
-    if (timingLow) {
-      Serial.println("D5 went HIGH. Timer reset.");
-    }
-
-    timingLow = false;
-    messageSent = false;
-  }
-
-  delay(10);
 }
 
-
 void sendDiscordMessage(String message) {
-
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi is not connected!");
+    Serial.println("WiFi not connected, reconnecting...");
+    WiFi.reconnect();
     return;
   }
 
+  WiFiClientSecure client;
+  client.setInsecure();
+  client.setTimeout(10000);
+
   HTTPClient http;
+  if (!http.begin(client, discordWebhook)) {
+    Serial.println("http.begin() failed");
+    return;
+  }
 
-  http.begin(discordWebhook);
   http.addHeader("Content-Type", "application/json");
+  int code = http.POST("{\"content\":\"" + message + "\"}");
 
-  String jsonPayload = "{\"content\":\"" + message + "\"}";
-
-  int httpResponseCode = http.POST(jsonPayload);
-
-  if (httpResponseCode > 0) {
-    Serial.print("Discord response: ");
-    Serial.println(httpResponseCode);
-  }
-  else {
-    Serial.print("Discord POST failed: ");
-    Serial.println(httpResponseCode);
-  }
+  Serial.print("Discord response: ");
+  Serial.println(code);
+  if (code < 0) Serial.println(HTTPClient::errorToString(code));
 
   http.end();
 }
